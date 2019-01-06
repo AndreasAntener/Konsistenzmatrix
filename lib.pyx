@@ -3,6 +3,7 @@ from __future__ import print_function
 from cpython cimport array
 from array import array
 import time
+from multiprocessing import Process
 
 cdef int get_consistency(int x, int y):
     return 1
@@ -10,33 +11,16 @@ cdef int get_consistency(int x, int y):
 cdef void store_combination(int csum, int[:] combination):
     pass
 
-def compute():
+def compute_chunk(py_factors, py_factor_index, py_predictions, py_chunk_count):
     # initialize
-    cdef int factors = 20
+    cdef int factors = py_factors
     cdef int combination_sum = 0
     cdef long count = 0
-    cdef long start_time = 0
-    cdef predictions = array('i', [3, 4, 3, 4, 3, 4, 3, 4, 3, 4, 3, 4, 3, 4, 3, 4, 3, 4, 3, 4])
-    cdef int[:] cpredictions = predictions
-    cdef factor_index = array('i', [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
-    cdef int[:] cfactor_index = factor_index
-    cdef long total_count = 1
+    cdef long chunk_count = py_chunk_count
+    cdef int[:] cpredictions = py_predictions
+    cdef int[:] cfactor_index = py_factor_index
     cdef int x, y
-
-    if len(predictions) != factors or len(factor_index) != factors:
-        print("number of prediction counts not is equal number of factors")
-        return
-
-    #cdef factor_index = array('i')
-    #cdef int cfactor_index[20]
-
-    for x in range(factors):
-        #factor_index.append(0)
-        total_count = total_count * cpredictions[x]
-
-    print("total number of combinations: %d" % total_count)
-
-    start_time = time.time()
+    cdef long start_time = time.time()
 
     # combine
     while True:
@@ -51,8 +35,8 @@ def compute():
 
         if count % 1e7 == 0:
             print(count)
-            print(factor_index)
-            print("estimated time until completion: %f hours" % (((time.time() - start_time) / (float(count) / float(total_count))) / 3600.0))
+            print(py_factor_index)
+            print("estimated time until completion: %f hours" % (((time.time() - start_time) / (float(count) / float(chunk_count))) / 3600.0))
 
         # advance indicies
         overflow = False
@@ -67,10 +51,40 @@ def compute():
             if overflow is False:
                 break
 
-        if overflow is True:
+        if overflow is True or count >= chunk_count:
             # we're done
             break;
 
     print(count)
-    print(factor_index)
+    print(py_factor_index)
     print("done")
+
+def compute():
+    # initialize
+    factors = 20
+    cdef predictions = array('i', [3, 4, 3, 4, 3, 4, 3, 4, 3, 4, 3, 4, 3, 4, 3, 4, 3, 4, 3, 4])
+    cdef factor_index = array('i', [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+    total_count = 1
+    chunk_size = 0
+
+    if len(predictions) != factors or len(factor_index) != factors:
+        print("number of prediction counts not is equal number of factors")
+        return
+
+    for x in range(factors):
+        #factor_index.append(0)
+        if x == factors - 1:
+            chunk_size = total_count
+        total_count = total_count * predictions[x]
+
+    print("total number of combinations: %d (chunk size: %d)" % (total_count, chunk_size))
+
+    processes = []
+    for x in range(predictions[factors - 1]):
+        factor_index_copy = array('i', [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, int(x)])
+        p = Process(target=compute_chunk, args=(factors, factor_index_copy, predictions, chunk_size))
+        p.start()
+        processes.append(p)
+
+    for x in range(predictions[factors - 1]):
+        processes[x].join()
