@@ -27,17 +27,12 @@ def load_data():
     ifile.close()
     return (val, crow)
 
-# cdef void store_combination(f, int csum, int[:] combination, int factors):
-#     cdef int x
-#     for x in range(factors):
-#         f.write("%d," % combination[x])
-#     f.write(": %d\n" % csum)
-
 def compute_chunk(py_pindex, py_factors, py_factor_index, py_predictions, py_chunk_count, py_data):
     # initialize
     cdef int factors = py_factors
     cdef int combination_sum = 0
     cdef long count = 0
+    cdef long buf_index = 0
     cdef long chunk_count = py_chunk_count
     cdef int[:] cpredictions = py_predictions
     cdef int[:] cfactor_index = py_factor_index
@@ -47,7 +42,7 @@ def compute_chunk(py_pindex, py_factors, py_factor_index, py_predictions, py_chu
     cdef const int[:,:] data = py_data
 
     f = open("workfile_%d" % py_pindex, 'w')
-    buf = []
+    buf = ['']*int(1e6)
 
     cdef long start_time = time.time()
 
@@ -77,23 +72,25 @@ def compute_chunk(py_pindex, py_factors, py_factor_index, py_predictions, py_chu
 
         if ignore == 0:
             # write sum
-            #store_combination(f, combination_sum, cfactor_index, factors)
-            res = []
+            res = [None]*int(factors)
             for x in range(factors):
-                res.append("%d," % cfactor_index[x])
-            res.append(": %d\n" % combination_sum)
+                res[x] = ''.join((str(cfactor_index[x]), ','))
+            #print (''.join(res))
             buf.append(''.join(res))
+            buf.append(''.join((str(combination_sum), '\n')))
+            buf_index += 1
 
         count += 1
 
-        if count % 1e6 == 0:
+        if buf_index == 1e6:
             print(count)
             print(py_factor_index)
             print("estimated time until completion: %f hours" % (((time.time() - start_time) / (float(count) / float(chunk_count))) / 3600.0))
             write_time = time.time()
             f.writelines(buf)
-            buf = []
+            buf = ['']*int(1e6)
             print("time to write buffer: %f" % (time.time() - write_time))
+            buf_index = 0
 
         # advance indicies
         overflow = False
@@ -111,6 +108,14 @@ def compute_chunk(py_pindex, py_factors, py_factor_index, py_predictions, py_chu
         if overflow is True or count >= chunk_count:
             # we're done
             break;
+
+    # write remaining buffer
+    if buf_index > 0:
+        write_time = time.time()
+        f.writelines(buf)
+        buf = None
+        print("time to write buffer: %f" % (time.time() - write_time))
+        buf_index = 0
 
     f.close()
     print("done (%d): %d" % (py_pindex, count))
